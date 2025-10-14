@@ -1,192 +1,239 @@
-# Graphene — Lightweight Graph Graph Library
+# Graphene — Lightweight Graph Library
 
-**Graphene** is a lightweight, robust C library for graph representation and manipulation. Its design prioritizes **simplicity, modularity, and reproducibility**, while providing slightly richer functionality to support research, experiments, and algorithm development.
-
-The core library provides **graph storage, traversal, node metadata, and small utilities**. Applications and research algorithms, such as metaheuristic influence maximization, sit separately in `apps/` and interact with the core through a stable API.
-
----
+Graphene is a lightweight, robust C library for graph representation and manipulation. Its design prioritizes simplicity, modularity, and reproducibility, while providing slightly richer functionality to support research, experiments, and algorithm development.
 
 ## Features
 
-* **CSR Graph Core:** Memory-efficient representation for fast traversal.
-* **Node Metadata:** Attach arbitrary payloads to nodes for experiments.
-* **Graph Primitives:** Degree, neighbors, edge existence, connected components.
-* **Traversal:** BFS with depth, DFS.
-* **Utilities & Small Algorithms:** Degree statistics, frontier computations, connected components.
-* **Modular Design:** Core library is decoupled from applications.
-* **Reproducibility:** Deterministic RNG and seedset utilities for experiments.
+* **CSR Graph Core**: Memory-efficient compressed sparse row representation
+* **Node Metadata**: Attach arbitrary payloads to nodes
+* **Graph Primitives**: Degree queries, neighbor iteration, edge existence
+* **Traversal**: BFS with depth tracking, DFS
+* **Algorithms**: Connected components, degree statistics
+* **Utilities**: Deterministic RNG, seedset I/O
+* **Modular Design**: Core library decoupled from applications
 
----
+## Building
 
-**Notes:**
+### Using Make
 
-* `src/` is the core library; unaware of any application logic.
-* `apps/` contains experiments or research algorithms, each with its own `main.c`.
-* `examples/` provides sample graphs and seedsets.
-* `tests/` validates correctness of graph operations.
-
----
-
-## Core Graph API
-
-### Graph Structure
-
-```c
-typedef struct Node {
-    int id;
-    void *metadata;   // Flexible payload per node
-} Node;
-
-typedef struct Graph {
-    int n;            // Number of nodes
-    int m;            // Number of edges
-    int *offsets;     // CSR row offsets
-    int *edges;       // Flattened adjacency list
-    Node *nodes;      // Node metadata array
-} Graph;
+```bash
+make                # Build library
+make test          # Run tests
+make clean         # Clean build files
+make install       # Install to /usr/local
 ```
 
----
+### Using CMake
 
-### Construction / Cleanup
-
-```c
-Graph* graph_load(const char* path);   // Load from edgelist
-void graph_free(Graph* g);             // Free memory
+```bash
+mkdir build && cd build
+cmake ..
+make
+make test
+sudo make install
 ```
 
----
+## Quick Start
 
-### Node Queries
+```c
+#include "graph.h"
+#include "utils.h"
+
+int main() {
+    // Load graph from edgelist
+    Graph *g = graph_load("examples/small.edgelist");
+    
+    printf("Nodes: %d, Edges: %d\n", 
+           graph_num_nodes(g), graph_num_edges(g));
+    
+    // Query neighbors
+    int count;
+    const int *neighbors = graph_neighbors(g, 0, &count);
+    printf("Node 0 has %d neighbors\n", count);
+    
+    // BFS traversal
+    graph_bfs(g, 0, 2, my_visit_fn, NULL);
+    
+    // Cleanup
+    graph_free(g);
+    return 0;
+}
+```
+
+## API Reference
+
+### Graph Construction
+
+```c
+Graph* graph_create(int num_nodes);
+Graph* graph_load(const char* path);
+void graph_free(Graph* g);
+```
+
+### Queries
 
 ```c
 int graph_num_nodes(const Graph* g);
 int graph_num_edges(const Graph* g);
 int graph_degree(const Graph* g, int node);
 const int* graph_neighbors(const Graph* g, int node, int* out_count);
+int graph_has_edge(const Graph* g, int u, int v);
+```
+
+### Metadata
+
+```c
 void* graph_node_metadata(const Graph* g, int node);
 void graph_set_node_metadata(Graph* g, int node, void* data);
 ```
 
----
-
 ### Traversal
 
 ```c
-// BFS with depth
 void graph_bfs(const Graph* g, int start, int max_depth,
                void (*visit)(int node, int depth, void* ctx),
                void* ctx);
 
-// DFS
 void graph_dfs(const Graph* g, int start,
                void (*visit)(int node, void* ctx),
                void* ctx);
 ```
 
----
-
-### Utilities / Small Algorithms
+### Algorithms
 
 ```c
-int graph_has_edge(const Graph* g, int u, int v);
 int graph_connected_components(const Graph* g, int* component_ids);
 void graph_degree_stats(const Graph* g, double* avg, int* min, int* max);
 ```
 
-**Optional helpers:**
+### Utilities
 
-* BFS-based distance counts
-* Frontier computation for influence experiments
-* Degree or centrality approximations
-
-These small utilities provide ready-to-use functionality for research without bloating the core.
-
----
-
-## Building Graphene
-
-Simple Makefile-based build:
-
-```bash
-git clone https://github.com/darius-tg/graphene
-cd graphene
-make           # Builds libgraphene.a
+```c
+void utils_seed_rng(unsigned int seed);
+int utils_rand_int(int min, int max);
+double utils_rand_double(void);
+void utils_shuffle_int_array(int* arr, int n);
+int* utils_load_seedset(const char* path, int* out_count);
+void utils_save_seedset(const char* path, const int* seeds, int count);
 ```
 
-Applications link against the core library:
+## File Format
 
-```bash
-cd apps/gwo_influence
-make
-./gwo_influence --graph ../../examples/small.edgelist --k 5 --pop 20 --iters 50
+Edge list format (space or tab separated):
+```
+0 1
+0 2
+1 3
+...
 ```
 
----
-
-## Adding Applications
-
-* Place research experiments or algorithms in `apps/`.
-* Each app has its own `main.c` and may maintain its own Makefile.
-* Apps use the core API (`graph.h` and `utils.h`) to access graph data and traversal functions.
-* This separation keeps the library small and auditable.
-
----
+Node IDs should be 0-indexed integers.
 
 ## Examples
 
-* `examples/small.edgelist` — tiny sample graph (0-based IDs)
-* `examples/init_seedset.txt` — initial seedsets for deterministic experiments
-
-**Sample usage:**
+### BFS with Custom Visitor
 
 ```c
-#include "graph.h"
+void my_visitor(int node, int depth, void* ctx) {
+    printf("Node %d at depth %d\n", node, depth);
+}
 
-Graph *g = graph_load("examples/small.edgelist");
-
-int n = graph_num_nodes(g);
-printf("Graph has %d nodes\n", n);
-
-int count;
-const int *nbrs = graph_neighbors(g, 0, &count);
-printf("Node 0 has %d neighbors\n", count);
-
-graph_bfs(g, 0, 2, [](int node, int depth, void* ctx){
-    printf("Visited %d at depth %d\n", node, depth);
-}, NULL);
-
-graph_free(g);
+graph_bfs(g, 0, -1, my_visitor, NULL);
 ```
 
----
+### Finding Connected Components
 
-## Philosophy
+```c
+int* components = malloc(g->n * sizeof(int));
+int num_comp = graph_connected_components(g, components);
+printf("Graph has %d components\n", num_comp);
+```
 
-* **Minimal & robust:** Core library does one thing — graph representation and traversal.
-* **Slightly richer:** Node metadata, traversal with depth, connected components, small algorithms.
-* **Separation of concerns:** Experiments live in `apps/`; core remains simple and reusable.
-* **Extensible & research-ready:** Core provides all basic graph operations; research applications can build on top.
+### Using Node Metadata
 
----
+```c
+typedef struct {
+    double score;
+    int active;
+} NodeData;
+
+NodeData* data = malloc(sizeof(NodeData));
+data->score = 0.75;
+data->active = 1;
+
+graph_set_node_metadata(g, node_id, data);
+
+// Later...
+NodeData* retrieved = graph_node_metadata(g, node_id);
+printf("Score: %f\n", retrieved->score);
+```
+
+### Deterministic Random Seeds
+
+```c
+utils_seed_rng(42);  // Reproducible experiments
+int* seeds = malloc(k * sizeof(int));
+for (int i = 0; i < k; i++) {
+    seeds[i] = utils_rand_int(0, g->n - 1);
+}
+utils_shuffle_int_array(seeds, k);
+```
+
+## Adding Applications
+
+Place your research code in `apps/`:
+
+```
+apps/
+└── my_algorithm/
+    ├── main.c
+    └── Makefile
+```
+
+Link against libgraphene:
+
+```makefile
+CC = gcc
+CFLAGS = -Wall -O2 -I../../include
+LDFLAGS = -L../../lib -lgraphene
+
+my_app: main.c
+	$(CC) $(CFLAGS) $< $(LDFLAGS) -o $@
+```
 
 ## Testing
 
-* Located in `tests/`
-* Validates CSR loading, BFS/DFS correctness, neighbor iteration, degree counts.
-* Run tests:
+The test suite validates:
+- Graph loading and CSR construction
+- Neighbor queries and edge detection
+- BFS/DFS traversal correctness
+- Connected component detection
+- Degree statistics
+- Metadata storage
+- Deterministic RNG
 
+Run tests:
 ```bash
 make test
 ```
 
----
+## Design Philosophy
+
+- **Minimal Core**: Graph representation and traversal only
+- **No Dependencies**: Pure C99, standard library only
+- **Memory Efficient**: CSR format for large sparse graphs
+- **Extensible**: Metadata system for custom node data
+- **Reproducible**: Deterministic RNG for experiments
+- **Separation**: Applications separate from core library
+
+## Performance Notes
+
+- CSR format: O(1) neighbor access, O(degree) iteration
+- BFS/DFS: O(V + E) time complexity
+- Connected components: O(V + E) with union-find
+- Memory: ~(V + 2E) integers for graph structure
 
 ## License
 
-MIT License — free for research, teaching, and personal use.
+MIT License - Free for research, teaching, and personal use.
 
-* `examples/` small graph and seedset
-* `Makefile` and minimal tests
-
-Do you want me to produce that starter repo now?
