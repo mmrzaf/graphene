@@ -32,8 +32,8 @@ Graph* graph_create(int num_nodes) {
     g->meta_free = NULL;
 
     g->offsets = (int*)calloc(num_nodes + 1, sizeof(int));
-    g->edges = NULL;
     g->nodes = (Node*)calloc(num_nodes, sizeof(Node));
+    g->edges = NULL;
 
     if (!g->offsets || !g->nodes) {
         set_error("Allocation failure during graph_create");
@@ -71,7 +71,6 @@ Graph* graph_load_with_flags(const char* path, unsigned int flags) {
     size_t edge_count = 0;
     int scanned;
 
-    // First pass: validate and count
     while ((scanned = fscanf(f, "%lld %lld", &u_ll, &v_ll)) != EOF) {
         if (scanned != 2) {
             set_error("Malformed line in input");
@@ -104,13 +103,12 @@ Graph* graph_load_with_flags(const char* path, unsigned int flags) {
 
     size_t* degrees = (size_t*)calloc(num_nodes, sizeof(size_t));
     if (!degrees) {
-        set_error("Allocation failure");
+        set_error("Allocation failure (degrees)");
         graph_free(g);
         fclose(f);
         return NULL;
     }
 
-    // Second pass: count degrees
     rewind(f);
     while (fscanf(f, "%lld %lld", &u_ll, &v_ll) == 2) {
         int u = (int)u_ll, v = (int)v_ll;
@@ -119,23 +117,21 @@ Graph* graph_load_with_flags(const char* path, unsigned int flags) {
         if (flags & GRAPH_FLAG_UNDIRECTED && u != v) degrees[v]++;
     }
 
-    // Build offsets
     g->offsets[0] = 0;
     for (int i = 0; i < num_nodes; i++) {
-        long long next = (long long)g->offsets[i] + (long long)degrees[i];
-        if (next > INT_MAX) {
+        if ((long long)g->offsets[i] > INT_MAX - (long long)degrees[i]) {
             set_error("Offset overflow");
             free(degrees);
             graph_free(g);
             fclose(f);
             return NULL;
         }
-        g->offsets[i + 1] = (int)next;
+        g->offsets[i + 1] = g->offsets[i] + (int)degrees[i];
     }
 
     g->m = g->offsets[num_nodes];
     g->edges = (int*)malloc(g->m * sizeof(int));
-    if (!g->edges) {
+    if (!g->edges && g->m > 0) {
         set_error("Failed to allocate edges");
         free(degrees);
         graph_free(g);
@@ -145,7 +141,7 @@ Graph* graph_load_with_flags(const char* path, unsigned int flags) {
 
     int* cursor = (int*)malloc(num_nodes * sizeof(int));
     if (!cursor) {
-        set_error("Allocation failure");
+        set_error("Allocation failure (cursor)");
         free(degrees);
         graph_free(g);
         fclose(f);
@@ -153,7 +149,6 @@ Graph* graph_load_with_flags(const char* path, unsigned int flags) {
     }
     memcpy(cursor, g->offsets, num_nodes * sizeof(int));
 
-    // Third pass: fill edges
     rewind(f);
     while (fscanf(f, "%lld %lld", &u_ll, &v_ll) == 2) {
         int u = (int)u_ll, v = (int)v_ll;
@@ -164,34 +159,49 @@ Graph* graph_load_with_flags(const char* path, unsigned int flags) {
         }
     }
 
-    // Optional deduplication
-    if (flags & GRAPH_FLAG_DEDUP_EDGES) {
-        for (int u = 0; u < num_nodes; u++) {
-            int start = g->offsets[u];
-            int end = g->offsets[u + 1];
-            int len = end - start;
-            if (len <= 1) continue;
-            qsort(&g->edges[start], len, sizeof(int), int_cmp);
-            int w = start;
-            for (int i = start + 1; i < end; i++) {
-                if (g->edges[i] != g->edges[w]) {
-                    g->edges[++w] = g->edges[i];
-                }
-            }
-            int new_len = w - start + 1;
-            if (new_len < len) {
-                int shift = len - new_len;
-                for (int j = u + 1; j <= num_nodes; j++) {
-                    g->offsets[j] -= shift;
-                }
-            }
-        }
-        g->m = g->offsets[num_nodes];
-    }
-
     free(degrees);
     free(cursor);
     fclose(f);
+
+    if (flags & GRAPH_FLAG_DEDUP_EDGES) {
+        int global_write_pos = 0;
+        int read_start = g->offsets[0];
+
+        for (int u = 0; u < num_nodes; u++) {
+            int read_end = g->offsets[u + 1];
+            int len = read_end - read_start;
+            int start_idx = read_start;
+
+            g->offsets[u] = global_write_pos;
+
+            if (len > 0) {
+                qsort(&g->edges[start_idx], len, sizeof(int), int_cmp);
+
+                int w = 0;
+                if (len > 0) {
+                    g->edges[start_idx + w++] = g->edges[start_idx];
+                    for (int r = 1; r < len; r++) {
+                        if (g->edges[start_idx + r] != g->edges[start_idx + w - 1]) {
+                            g->edges[start_idx + w++] = g->edges[start_idx + r];
+                        }
+                    }
+                }
+                int unique_len = w;
+
+                if (global_write_pos != start_idx) {
+                    memmove(&g->edges[global_write_pos], &g->edges[start_idx], unique_len * sizeof(int));
+                }
+
+                global_write_pos += unique_len;
+            }
+
+            read_start = read_end;
+        }
+
+        g->offsets[num_nodes] = global_write_pos;
+        g->m = global_write_pos;
+    }
+
     return g;
 }
 
@@ -211,8 +221,8 @@ void graph_free(Graph* g) {
         }
         free(g->nodes);
     }
-    free(g->offsets);
-    free(g->edges);
+    if (g->offsets) free(g->offsets);
+    if (g->edges) free(g->edges);
     free(g);
 }
 
