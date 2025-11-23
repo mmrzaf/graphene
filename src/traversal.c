@@ -9,7 +9,14 @@ void graph_bfs(const Graph* g, int start, int max_depth,
     int* visited = (int*)calloc(g->n, sizeof(int));
     int* depths = (int*)calloc(g->n, sizeof(int));
     int* queue = (int*)malloc(g->n * sizeof(int));
-    
+
+    if (!visited || !depths || !queue) {
+        if (visited) free(visited);
+        if (depths) free(depths);
+        if (queue) free(queue);
+        return;
+    }
+
     int head = 0, tail = 0;
     
     queue[tail++] = start;
@@ -63,6 +70,8 @@ void graph_dfs(const Graph* g, int start,
     if (!g || start < 0 || start >= g->n || !visit) return;
     
     int* visited = (int*)calloc(g->n, sizeof(int));
+    if (!visited) return;
+
     dfs_recursive(g, start, visited, visit, ctx);
     free(visited);
 }
