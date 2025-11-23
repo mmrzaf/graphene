@@ -10,7 +10,12 @@ void utils_seed_rng(unsigned int seed) {
 }
 
 int utils_rand_int(int min, int max) {
-    // Linear congruential generator
+    if (min > max) {
+        int temp = min;
+        min = max;
+        max = temp;
+    }
+
     rng_state = rng_state * 1103515245 + 12345;
     unsigned int val = (rng_state / 65536) % 32768;
     return min + (val % (max - min + 1));
@@ -46,7 +51,14 @@ int* utils_load_seedset(const char* path, int* out_count) {
     while (fscanf(f, "%d", &node) == 1) {
         if (count >= capacity) {
             capacity *= 2;
-            seeds = (int*)realloc(seeds, capacity * sizeof(int));
+            int* new_seeds = (int*)realloc(seeds, capacity * sizeof(int));
+            if (!new_seeds) {
+                free(seeds);
+                fclose(f);
+                if (out_count) *out_count = 0;
+                return NULL;
+            }
+            seeds = new_seeds;
         }
         seeds[count++] = node;
     }
